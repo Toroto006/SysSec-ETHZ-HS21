@@ -34,6 +34,7 @@
 
 #include <assert.h>
 #include <stdlib.h>
+typedef unsigned __int128 uint128_t;
 #include "sgx_tcrypto.h"
 
 #define HANDSHAKE_LEN 11

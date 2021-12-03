@@ -26,6 +26,70 @@ void print_mem_content(unsigned char *p, size_t size){
     printf("\n");
 }
 
+sgx_status_t do_challenge(sgx_aes_ctr_128bit_key_t *p_key, uint128_t p_ctr_e, uint128_t p_ctr_d, int *correct){
+        // TODO split out to seperate ECALL
+    sgx_status_t sgx_status;
+    // Create space for the two numbers
+    int a, b;
+    // create random number a and b
+    sgx_status = sgx_read_rand((unsigned char*)&a, sizeof(int));
+    if (sgx_status != SGX_SUCCESS) {
+        printf("Errored out at sgx_read_rand\n");
+        return sgx_status;
+    }
+    sgx_status = sgx_read_rand((unsigned char*)&b, sizeof(int));
+    if (sgx_status != SGX_SUCCESS) {
+        printf("Errored out at sgx_read_rand\n");
+        return sgx_status;
+    }
+    printf("Created two random numbers a: %x and b: %x\n", a, b);
+
+    // Now we create the a||b to send
+    char ptxt_challenge[sizeof(int)*2] = {0};
+    memcpy(ptxt_challenge, (char *)&a, sizeof(int));
+    memcpy(ptxt_challenge+sizeof(int), (char *)&b, sizeof(int));
+    
+    // Encrypt the challenge message after creating space for the encrypted one
+    char ctxt_challenge[sizeof(int)*2] = {0};
+    sgx_status = sgx_aes_ctr_encrypt(p_key, (uint8_t *)ptxt_challenge, sizeof(int)*2, (uint8_t *)&p_ctr_e, 16, (uint8_t *)ctxt_challenge);
+    if (sgx_status != SGX_SUCCESS) {
+        printf("Errored out at sgx_aes_ctr_encrypt\n");
+        return sgx_status;
+    }
+
+    // Send the encrypted message
+    ocall_send((char *)&ctxt_challenge, sizeof(int)*2);
+    printf("Sent challenge\n");
+
+    // Do the calculation Alice just figured out
+    int c = a + b;
+
+    // Receive the response from Bob for cs
+    char *buffer; // pointer to string in untrusted memory that we would get form OCALL
+    size_t len;  // length of string
+    ocall_recv(&buffer, &len);
+    if (len != sizeof(int))
+        return SGX_ERROR_UNEXPECTED;
+    // copy back value we got
+    char c_ctxt[len] = {0};
+    memcpy(&c_ctxt, buffer, len);
+    //print_mem_content((unsigned char *)c_ctxt, len);
+
+    // Now do the decryption
+    int c_recv = 0;
+    sgx_status = sgx_aes_ctr_decrypt(p_key, (uint8_t *)c_ctxt, len, (uint8_t *)&p_ctr_d, 16, (uint8_t *)&c_recv);
+    if (sgx_status != SGX_SUCCESS) {
+        printf("Errored out at sgx_aes_ctr_decrypt\n");
+        return sgx_status;
+    }
+    printf("Got remote c\n");
+
+    // Do check of equivalence
+    printf("Results are %x for c and %x c_recv\n", c, c_recv);
+    *correct = c != c_recv;
+    return SGX_SUCCESS;
+}
+
 sgx_status_t run()
 {
     // Always check returns
@@ -88,16 +152,16 @@ sgx_status_t run()
     // keys are saved in little endian, lower 128 bit are the first 16 B of it
     //printf("Sizeof sgx_aes_ctr_128bit_key_t: %ld\n", sizeof(p_key));
     memcpy(&p_key, &p_shared_key, sizeof(p_key));
-    print_mem_content((unsigned char *)p_key, 16);
+    //print_mem_content((unsigned char *)p_key, 16);
     // the IV
-    uint8_t p_ctr_e = 0;
-    sgx_status = sgx_aes_ctr_encrypt(&p_key, (uint8_t *)PSK_A, HANDSHAKE_LEN, &p_ctr_e, 16, (uint8_t *)ctxt);
+    uint128_t p_ctr_e = 0;
+    sgx_status = sgx_aes_ctr_encrypt(&p_key, (uint8_t *)PSK_A, HANDSHAKE_LEN, (uint8_t *)&p_ctr_e, 16, (uint8_t *)ctxt);
     if (sgx_status != SGX_SUCCESS) {
         printf("Errored out at sgx_aes_ctr_encrypt\n");
         return sgx_status;
     }
     printf("Encrypted PSK success\n");
-    print_mem_content((unsigned char *)ctxt, HANDSHAKE_LEN);
+    //print_mem_content((unsigned char *)ctxt, HANDSHAKE_LEN);
 
     // Now send this PSK
     ocall_send(ctxt, HANDSHAKE_LEN);
@@ -112,60 +176,36 @@ sgx_status_t run()
     memcpy(&rem_ctxt, buffer, len);
     printf("Got remote PSK:\n");
     // Decode the remote PSK and check it is correct size
-    print_mem_content((unsigned char *)rem_ctxt, HANDSHAKE_LEN);
-    // Decrypt the remote PSK
     char PSK_B[HANDSHAKE_LEN] = {0};
-    uint8_t p_ctr_d = 0;
-    sgx_status = sgx_aes_ctr_decrypt(&p_key, (uint8_t *)ctxt, HANDSHAKE_LEN, &p_ctr_d, 16, (uint8_t *)PSK_B);
+    uint128_t p_ctr_d = 0;
+    sgx_status = sgx_aes_ctr_decrypt(&p_key, (uint8_t *)rem_ctxt, HANDSHAKE_LEN, (uint8_t *)&p_ctr_d, 16, (uint8_t *)PSK_B);
     if (sgx_status != SGX_SUCCESS) {
         printf("Errored out at sgx_aes_ctr_decrypt\n");
         return sgx_status;
     }
     printf("Got remote PSK decrypted: %s\n", PSK_B);
     // Check against what we expect from the other side
-    if (strncmp(PSK_A, PSK_A, HANDSHAKE_LEN) != 0) {
+    if (strncmp("I AM BOBOB", PSK_B, HANDSHAKE_LEN) != 0) {
         printf("The PSK is not the expected one!\n");
-        goto cleanup_1;
+        // TODO split this part off into a seperate ECALL
+        return SGX_ERROR_UNEXPECTED;
     }
 
     // Now that we know we talk to Bob let's do the actual task
-    // create random number a and b
-    int a, b;
-    sgx_status = sgx_read_rand((unsigned char*)&a, sizeof(int));
-    if (sgx_status != SGX_SUCCESS) {
-        printf("Errored out at sgx_read_rand\n");
-        return sgx_status;
+    // Do the whole thing 20 times
+    int correct;
+    for (int i = 1; i < 21; i++) {
+        sgx_status = do_challenge(&p_key, p_ctr_e, p_ctr_d, &correct);
+        if (sgx_status != SGX_SUCCESS) {
+            printf("Errored out at do_challenge\n");
+            return sgx_status;
+        }
+        if (correct) {
+            printf("Bob was not able to calculate the result c correctly!!");
+            return SGX_ERROR_UNEXPECTED;
+        }
+        printf("Nice, Bob did it! (%d)\n", i);
     }
-    sgx_status = sgx_read_rand((unsigned char*)&b, sizeof(int));
-    if (sgx_status != SGX_SUCCESS) {
-        printf("Errored out at sgx_read_rand\n");
-        return sgx_status;
-    }
-    printf("Created two random numbers a: %x and b: %x\n", a, b);
-
-    // Now we create the a||b to send
-    char ptxt_challenge[sizeof(int)*2] = {0};
-    memcpy(ptxt_challenge, (char *)&a, sizeof(int));
-    memcpy(ptxt_challenge+sizeof(int), (char *)&b, sizeof(int));
-    
-    // Encrypt the challenge message after creating space for the encrypted one
-    char ctxt_challenge[sizeof(int)*2] = {0};
-    sgx_status = sgx_aes_ctr_encrypt(&p_key, (uint8_t *)ptxt_challenge, sizeof(int)*2, &p_ctr_e, 16, (uint8_t *)ctxt_challenge);
-    if (sgx_status != SGX_SUCCESS) {
-        printf("Errored out at sgx_aes_ctr_encrypt\n");
-        return sgx_status;
-    }
-
-    // Send the encrypted message
-    ocall_send((char *)&ctxt_challenge, sizeof(int)*2);
-    printf("Sent challenge\n");
-
-    // Do the calculation Alice just figured out
-    int c = a + b;
-
-    // Receive the response from Bob
-
-cleanup_1:
     // No cleanup to do?
     return SGX_SUCCESS;
 }

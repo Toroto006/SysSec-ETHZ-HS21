@@ -157,7 +157,7 @@ void print_mem_content(unsigned char *p, size_t size){
 
 // The OCALL send from the enclave
 void ocall_send(char *buffer, size_t len) {
-    printf("OCALL send len: %ld\n", len);
+    //printf("OCALL send len: %ld\n", len);
     // Prepare the message to be send
     char buf[MSG_LEN] = {0};
     // Prepend the len to actually use
@@ -165,7 +165,7 @@ void ocall_send(char *buffer, size_t len) {
     // Copy in the message
     memcpy(buf+sizeof(size_t), buffer, len);
     // Actually send
-    print_mem_content((unsigned char *)buffer, 64);
+    //print_mem_content((unsigned char *)buffer, 64);
     send_msg(buf);
 }
 
@@ -175,8 +175,8 @@ void ocall_recv(char **buffer_ptr, size_t *len) {
     recv_msg(msg_buffer);
     // Read the return size_t from the start
     memcpy(len, msg_buffer, sizeof(size_t));
-    printf("OCALL recv: %ld\n", *len);
-    print_mem_content((unsigned char *)msg_buffer+8, 64);
+    //printf("OCALL recv: %ld\n", *len);
+    //print_mem_content((unsigned char *)msg_buffer+8, 64);
     // Copy len of msg over to enclave buf
     *buffer_ptr = copy_buffer;
     memcpy(copy_buffer, msg_buffer+sizeof(size_t), *len);
