@@ -42,7 +42,9 @@ enclave {
     include "sgx_trts.h"
 
     trusted{
-      public sgx_status_t run(void);
+      public uint32_t get_sealed_size();
+      public sgx_status_t createEnclave([out, size=data_size] uint8_t* sealed_key, uint32_t data_size);
+      public sgx_status_t getPSK([in, size=data_size] const uint8_t *sealed_key, size_t data_size);
     };
     /*
      * ocall_print_string - invokes OCALL to display string buffer inside the enclave.

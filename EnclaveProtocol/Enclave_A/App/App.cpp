@@ -187,26 +187,62 @@ int SGX_CDECL main(int argc, char *argv[])
 {
     (void)(argc);
     (void)(argv);
+    // Initialize communication to App B
+    if(init_client() < 0){
+        printf("Connection to App B failed. Make sure it is running!\n");
+        return -1;
+    }
     /* Initialize the enclave */
     if(initialize_enclave() < 0){
         printf("Enclave initialization failed.\n");
         return -1;
     }
-    if(init_client() < 0){
-        printf("Connection to App B failed. Make sure it is running!\n");
+    printf("From App: Enclave creation success.\n");
+    // The following is again from the SealUnseal Sample of SGX
+    // Get the sealed data size
+    sgx_status_t sgx_status;
+    uint32_t sealed_data_size = 0;
+    sgx_status = get_sealed_size(global_eid, &sealed_data_size);
+    if (sgx_status != SGX_SUCCESS)
+    {
+        print_error_message(sgx_status);
+        sgx_destroy_enclave(global_eid);
+        return -1;
+    } else if(sealed_data_size == UINT32_MAX) {
+        sgx_destroy_enclave(global_eid);
         return -1;
     }
-    printf("From App: Enclave creation success.\n");
+    
+    uint8_t *sealed_key = (uint8_t *)malloc(sealed_data_size);
+    if(sealed_key == NULL)
+    {
+        printf("Out of memory");
+        sgx_destroy_enclave(global_eid);
+        return -1;
+    }
+    sgx_status_t retval;
+    sgx_status = createEnclave(global_eid, &retval, sealed_key, sealed_data_size);
+    if (sgx_status != SGX_SUCCESS)
+    {
+        print_error_message(sgx_status);
+        free(sealed_key);
+        sgx_destroy_enclave(global_eid);
+        return -1;
+    }
+    else if( retval != SGX_SUCCESS)
+    {
+        print_error_message(retval);
+        free(sealed_key);
+        sgx_destroy_enclave(global_eid);
+        return -1;
+    }
+    printf("From App: createEnclave success.\n");
 
-    // IPC try first
-    char *mes = "Initial test message";
-    send_msg(mes);
-
-    sgx_status_t sgx_status;
     // Now run the enclave
-    run(global_eid, &sgx_status);
+    getPSK(global_eid, &sgx_status, sealed_key, sealed_data_size);
     if (sgx_status != SGX_SUCCESS) {
         print_error_message(sgx_status);
+        sgx_destroy_enclave(global_eid);
         return -1;
     }
 

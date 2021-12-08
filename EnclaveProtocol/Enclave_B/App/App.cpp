@@ -200,11 +200,6 @@ int SGX_CDECL main(int argc, char *argv[])
     }
     printf("From App B: Enclave creation success.\n");
     
-    // test IPC
-    char buffer[MSG_LEN] = {0};
-    recv_msg(buffer);
-    printf("App B: %s\n", buffer);
-
     sgx_status_t sgx_status;
 
     run(global_eid, &sgx_status);
