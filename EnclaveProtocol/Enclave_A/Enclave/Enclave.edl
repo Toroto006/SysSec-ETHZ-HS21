@@ -45,6 +45,7 @@ enclave {
       public uint32_t get_sealed_size();
       public sgx_status_t createEnclave([out, size=data_size] uint8_t* sealed_key, uint32_t data_size);
       public sgx_status_t getPSK([in, size=data_size] const uint8_t *sealed_key, size_t data_size);
+      public sgx_status_t getChallenge([in, size=data_size] const uint8_t *sealed_key, size_t data_size, int iteration, [out] int *success);
     };
     /*
      * ocall_print_string - invokes OCALL to display string buffer inside the enclave.

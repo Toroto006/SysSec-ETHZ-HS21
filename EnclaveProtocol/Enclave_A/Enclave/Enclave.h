@@ -34,7 +34,6 @@
 
 #include <assert.h>
 #include <stdlib.h>
-typedef unsigned __int128 uint128_t;
 
 #define HANDSHAKE_LEN 11
 
